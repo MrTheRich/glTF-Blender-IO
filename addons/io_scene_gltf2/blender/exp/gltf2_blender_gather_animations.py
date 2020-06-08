@@ -53,7 +53,7 @@ def gather_animations(blender_object: bpy.types.Object,
                 break
 
     # Export all collected actions.
-    for blender_action, track_name, on_type in blender_actions:
+    for blender_action, track_name, on_type, frame_range in blender_actions: # Added frame range - MrEmjeR
 
         # Set action as active, to be able to bake if needed
         if on_type == "OBJECT": # Not for shapekeys!
@@ -73,7 +73,7 @@ def gather_animations(blender_object: bpy.types.Object,
 
         # No need to set active shapekeys animations, this is needed for bone baking
 
-        animation = __gather_animation(blender_action, blender_object, export_settings)
+        animation = __gather_animation(blender_action, blender_object, frame_range, export_settings) # Added frame_range - MrEmjeR
         if animation is not None:
             animations.append(animation)
 
@@ -103,6 +103,7 @@ def gather_animations(blender_object: bpy.types.Object,
 
 def __gather_animation(blender_action: bpy.types.Action,
                        blender_object: bpy.types.Object,
+                       frame_range, # Added frame_range - MrEmjeR
                        export_settings
                        ) -> typing.Optional[gltf2_io.Animation]:
     if not __filter_animation(blender_action, blender_object, export_settings):
@@ -111,7 +112,7 @@ def __gather_animation(blender_action: bpy.types.Action,
     name = __gather_name(blender_action, blender_object, export_settings)
     try:
         animation = gltf2_io.Animation(
-            channels=__gather_channels(blender_action, blender_object, export_settings),
+            channels=__gather_channels(blender_action, blender_object, frame_range, export_settings), # Added frame_range - MrEmjeR
             extensions=__gather_extensions(blender_action, blender_object, export_settings),
             extras=__gather_extras(blender_action, blender_object, export_settings),
             name=name,
@@ -144,10 +145,11 @@ def __filter_animation(blender_action: bpy.types.Action,
 
 def __gather_channels(blender_action: bpy.types.Action,
                       blender_object: bpy.types.Object,
+                      frame_range, # Added frame_range - MrEmjeR
                       export_settings
                       ) -> typing.List[gltf2_io.AnimationChannel]:
     return gltf2_blender_gather_animation_channels.gather_animation_channels(
-        blender_action, blender_object, export_settings)
+        blender_action, blender_object, frame_range, export_settings) # Added frame_range - MrEmjeR
 
 
 def __gather_extensions(blender_action: bpy.types.Action,
@@ -214,6 +216,7 @@ def __get_blender_actions(blender_object: bpy.types.Object,
     blender_actions = []
     blender_tracks = {}
     action_on_type = {}
+    blender_action_range = {}  # Added action ranges - MrEmjeR
 
     if blender_object.animation_data is not None:
         # Collect active action.
@@ -221,6 +224,7 @@ def __get_blender_actions(blender_object: bpy.types.Object,
             blender_actions.append(blender_object.animation_data.action)
             blender_tracks[blender_object.animation_data.action.name] = None
             action_on_type[blender_object.animation_data.action.name] = "OBJECT"
+            blender_action_range[blender_object.animation_data.action.name] = (bpy.context.scene.frame_start, bpy.context.scene.frame_end) # Save actionframe start and end - MrEmjeR
 
         # Collect associated strips from NLA tracks.
         if export_settings['gltf_nla_strips'] is True:
@@ -228,12 +232,16 @@ def __get_blender_actions(blender_object: bpy.types.Object,
                 # Multi-strip tracks do not export correctly yet (they need to be baked),
                 # so skip them for now and only write single-strip tracks.
                 non_muted_strips = [strip for strip in track.strips if strip.action is not None and strip.mute is False]
-                if track.strips is None or len(non_muted_strips) != 1:
+                if track.strips is None:
+                    continue
+                elif len(non_muted_strips) != 1:
+                    print_console("Skipped " + track.name + " because it has more than one action") # Notice if multi-strip track - MrEmjeR
                     continue
                 for strip in non_muted_strips:
                     blender_actions.append(strip.action)
                     blender_tracks[strip.action.name] = track.name # Always set after possible active action -> None will be overwrite
                     action_on_type[strip.action.name] = "OBJECT"
+                    blender_action_range[strip.action.name] = (strip.action_frame_start, strip.action_frame_end) # Save actionframe start and end - MrEmjeR
 
     if blender_object.type == "MESH" \
             and blender_object.data is not None \
@@ -244,22 +252,27 @@ def __get_blender_actions(blender_object: bpy.types.Object,
                 blender_actions.append(blender_object.data.shape_keys.animation_data.action)
                 blender_tracks[blender_object.data.shape_keys.animation_data.action.name] = None
                 action_on_type[blender_object.data.shape_keys.animation_data.action.name] = "SHAPEKEY"
+                blender_action_range[blender_object.data.shape_keys.animation_data.action.name] = (bpy.context.scene.frame_start, bpy.context.scene.frame_end) # Save actionframe start and end - MrEmjeR
 
             if export_settings['gltf_nla_strips'] is True:
                 for track in blender_object.data.shape_keys.animation_data.nla_tracks:
                     # Multi-strip tracks do not export correctly yet (they need to be baked),
                     # so skip them for now and only write single-strip tracks.
                     non_muted_strips = [strip for strip in track.strips if strip.action is not None and strip.mute is False]
-                    if track.strips is None or len(non_muted_strips) != 1:
+                    if track.strips is None:
+                        continue
+                    elif len(non_muted_strips) != 1:
+                        print_console("Skipped " + track.name + " because it has more than one action") # Notice if multi-strip track - MrEmjeR
                         continue
                     for strip in non_muted_strips:
                         blender_actions.append(strip.action)
                         blender_tracks[strip.action.name] = track.name # Always set after possible active action -> None will be overwrite
                         action_on_type[strip.action.name] = "SHAPEKEY"
+                        blender_action_range[strip.action.name] = (strip.action_frame_start, strip.action_frame_end) # Save actionframe start and end - MrEmjeR
 
     # Remove duplicate actions.
     blender_actions = list(set(blender_actions))
     # sort animations alphabetically (case insensitive) so they have a defined order and match Blender's Action list
     blender_actions.sort(key = lambda a: a.name.lower())
 
-    return [(blender_action, blender_tracks[blender_action.name], action_on_type[blender_action.name]) for blender_action in blender_actions]
+    return [(blender_action, blender_tracks[blender_action.name], action_on_type[blender_action.name], blender_action_range[blender_action.name]) for blender_action in blender_actions] # Added action ranges - MrEmjeR

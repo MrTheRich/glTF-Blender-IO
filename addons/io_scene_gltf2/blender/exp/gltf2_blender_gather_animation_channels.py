@@ -31,27 +31,31 @@ from io_scene_gltf2.io.exp.gltf2_io_user_extensions import export_user_extension
 @cached
 def gather_animation_channels(blender_action: bpy.types.Action,
                               blender_object: bpy.types.Object,
+                              frame_range, # Added frame_range - MrEmjeR
                               export_settings
                               ) -> typing.List[gltf2_io.AnimationChannel]:
     channels = []
 
-
-    # First calculate range of animation for baking
-    # This is need if user set 'Force sampling' and in case we need to bake
-    bake_range_start = None
-    bake_range_end = None
-    groups = __get_channel_groups(blender_action, blender_object, export_settings)
-    # Note: channels has some None items only for SK if some SK are not animated
-    for chans in groups:
-        ranges = [channel.range() for channel in chans  if channel is not None]
-        if bake_range_start is None:
-            bake_range_start = min([channel.range()[0] for channel in chans  if channel is not None])
-        else:
-            bake_range_start = min(bake_range_start, min([channel.range()[0] for channel in chans  if channel is not None]))
-        if bake_range_end is None:
-            bake_range_end = max([channel.range()[1] for channel in chans  if channel is not None])
-        else:
-            bake_range_end = max(bake_range_end, max([channel.range()[1] for channel in chans  if channel is not None]))
+    if export_settings['gltf_frame_range'] is False: # Added frame_range - MrEmjeR
+        # First calculate range of animation for baking
+        # This is need if user set 'Force sampling' and in case we need to bake
+        bake_range_start = None
+        bake_range_end = None
+        groups = __get_channel_groups(blender_action, blender_object, export_settings)
+        # Note: channels has some None items only for SK if some SK are not animated
+        for chans in groups:
+            ranges = [channel.range() for channel in chans  if channel is not None]
+            if bake_range_start is None:
+                bake_range_start = min([channel.range()[0] for channel in chans  if channel is not None])
+            else:
+                bake_range_start = min(bake_range_start, min([channel.range()[0] for channel in chans  if channel is not None]))
+            if bake_range_end is None:
+                bake_range_end = max([channel.range()[1] for channel in chans  if channel is not None])
+            else:
+                bake_range_end = max(bake_range_end, max([channel.range()[1] for channel in chans  if channel is not None]))
+    else:
+        bake_range_start = frame_range[0] # Added frame_range - MrEmjeR
+        bake_range_end = frame_range[1]
 
 
     if blender_object.type == "ARMATURE" and export_settings['gltf_force_sampling'] is True:
